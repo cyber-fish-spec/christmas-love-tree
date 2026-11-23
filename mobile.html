@@ -1,0 +1,2447 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="由 Canvas 实时渲染的交互式圣诞粒子树。"
+    />
+    <title>For You / 冬夜星河</title>
+    <style>
+:root {
+  color-scheme: dark;
+  --ice: #bff8ff;
+  --blue: #4b8dff;
+  --deep: #03101d;
+  --muted: rgba(193, 229, 255, 0.58);
+  --line: rgba(186, 235, 255, 0.18);
+  --panel: rgba(4, 14, 26, 0.48);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: #01040a;
+}
+
+body {
+  font-family:
+    "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  color: #f2fbff;
+  user-select: none;
+  cursor: grab;
+  -webkit-font-smoothing: antialiased;
+}
+
+body.is-dragging {
+  cursor: grabbing;
+}
+
+button {
+  font: inherit;
+}
+
+.stage {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  min-height: 440px;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(39, 114, 205, 0.1), transparent 32%),
+    linear-gradient(180deg, #02060d 0%, #01040a 100%);
+}
+
+#scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  touch-action: none;
+}
+
+.ambient,
+.scanlines,
+.vignette,
+.flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ambient {
+  z-index: 1;
+  filter: blur(70px);
+  opacity: 0.35;
+  mix-blend-mode: screen;
+}
+
+.ambient-a {
+  background: radial-gradient(
+    ellipse 24% 42% at 52% 42%,
+    rgba(24, 135, 255, 0.13),
+    transparent 72%
+  );
+  animation: breathe-a 8s ease-in-out infinite alternate;
+}
+
+.ambient-b {
+  background: radial-gradient(
+    ellipse 26% 20% at 50% 86%,
+    rgba(40, 211, 255, 0.1),
+    transparent 74%
+  );
+  animation: breathe-b 11s ease-in-out infinite alternate;
+}
+
+.scanlines {
+  z-index: 2;
+  opacity: 0.08;
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 3px,
+    rgba(132, 216, 255, 0.18) 4px
+  );
+  mask-image: linear-gradient(to bottom, transparent, black 20%, black 80%, transparent);
+}
+
+.vignette {
+  z-index: 3;
+  background:
+    radial-gradient(ellipse at center, transparent 36%, rgba(0, 3, 9, 0.48) 100%),
+    linear-gradient(180deg, rgba(0, 4, 10, 0.28), transparent 16%, transparent 82%, rgba(0, 3, 8, 0.5));
+}
+
+.flash {
+  z-index: 4;
+  background: radial-gradient(circle at 50% 26%, rgba(220, 253, 255, 0.78), transparent 46%);
+  opacity: 0;
+}
+
+.flash.is-active {
+  animation: flash 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.hud {
+  position: absolute;
+  z-index: 6;
+  left: clamp(22px, 4vw, 68px);
+  right: clamp(22px, 4vw, 68px);
+  pointer-events: none;
+}
+
+.hud-top {
+  top: clamp(22px, 4.2vw, 60px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 32px;
+}
+
+.identity {
+  max-width: 600px;
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.23em;
+}
+
+.signal {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #a8f7ff;
+  box-shadow: 0 0 12px #52c8ff, 0 0 24px rgba(82, 200, 255, 0.65);
+  animation: signal 2.3s ease-in-out infinite;
+}
+
+h1 {
+  margin: 0;
+  font-family:
+    "Arial Narrow", "Aptos Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: clamp(34px, 4.3vw, 66px);
+  font-stretch: condensed;
+  font-weight: 300;
+  line-height: 0.95;
+  letter-spacing: -0.055em;
+  text-shadow: 0 0 38px rgba(103, 215, 255, 0.16);
+}
+
+h1 span {
+  margin: 0 0.12em;
+  color: rgba(173, 240, 255, 0.48);
+  font-weight: 100;
+}
+
+.identity p {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.mode-switch {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(3, 12, 23, 0.54);
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035), 0 20px 70px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(14px);
+  pointer-events: auto;
+}
+
+.mode-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 92px;
+  padding: 10px 15px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(207, 238, 255, 0.48);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+  transition:
+    color 220ms ease,
+    background 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.mode-button span {
+  color: rgba(153, 210, 255, 0.35);
+  font-size: 8px;
+  font-weight: 400;
+}
+
+.mode-button:hover {
+  color: #e8fbff;
+}
+
+.mode-button.is-active {
+  background: linear-gradient(135deg, rgba(137, 234, 255, 0.16), rgba(60, 111, 255, 0.2));
+  color: #edfdff;
+  box-shadow: inset 0 0 0 1px rgba(189, 241, 255, 0.12), 0 0 24px rgba(57, 164, 255, 0.12);
+}
+
+.mode-button.is-active span {
+  color: #91ebff;
+}
+
+.side-index {
+  position: absolute;
+  z-index: 5;
+  top: 50%;
+  right: clamp(14px, 2.4vw, 36px);
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: rgba(190, 232, 255, 0.22);
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  transform: rotate(90deg) translateX(50%);
+  transform-origin: right center;
+}
+
+.side-index i {
+  display: block;
+  width: 42px;
+  height: 1px;
+  background: rgba(173, 229, 255, 0.2);
+}
+
+.hud-bottom {
+  bottom: clamp(26px, 4.5vw, 62px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.telemetry {
+  display: flex;
+  gap: clamp(20px, 3vw, 42px);
+}
+
+.telemetry div {
+  position: relative;
+  min-width: 58px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(181, 229, 255, 0.16);
+}
+
+.telemetry div::before {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #9fefff;
+  box-shadow: 0 0 9px #5ac8ff;
+  content: "";
+}
+
+.label {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(182, 226, 255, 0.4);
+  font-size: 8px;
+  letter-spacing: 0.22em;
+}
+
+.telemetry strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.action-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(178, 230, 255, 0.15);
+  border-radius: 4px;
+  background: rgba(4, 15, 28, 0.56);
+  color: rgba(223, 247, 255, 0.68);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  backdrop-filter: blur(14px);
+  transition:
+    border-color 180ms ease,
+    color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease;
+}
+
+.action-button svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.3;
+}
+
+.action-button:hover {
+  border-color: rgba(189, 239, 255, 0.36);
+  background: rgba(9, 27, 47, 0.7);
+  color: #f2fcff;
+  transform: translateY(-1px);
+}
+
+.action-button:active {
+  transform: translateY(1px) scale(0.985);
+}
+
+.action-button.is-primary {
+  border-color: rgba(160, 236, 255, 0.28);
+  background: linear-gradient(135deg, rgba(77, 184, 255, 0.14), rgba(78, 90, 255, 0.17));
+  color: #d7f9ff;
+  box-shadow: inset 0 0 18px rgba(90, 195, 255, 0.04);
+}
+
+.action-button[aria-pressed="false"] {
+  color: rgba(199, 225, 239, 0.42);
+}
+
+.gesture-hint {
+  position: absolute;
+  z-index: 5;
+  bottom: 32px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: rgba(203, 236, 255, 0.28);
+  font-size: 8px;
+  letter-spacing: 0.12em;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gesture-hint i {
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: rgba(160, 228, 255, 0.42);
+}
+
+.love-reveal {
+  position: absolute;
+  z-index: 5;
+  bottom: clamp(76px, 9.5vh, 112px);
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  width: min(90vw, 650px);
+  text-align: center;
+  opacity: 0;
+  filter: blur(10px);
+  transform: translate(-50%, 16px) scale(0.96);
+  transition:
+    opacity 1400ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 1400ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 1400ms cubic-bezier(0.16, 1, 0.3, 1);
+  pointer-events: none;
+}
+
+.love-reveal::before {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 70%;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse,
+    rgba(255, 123, 197, 0.13),
+    rgba(92, 142, 255, 0.055) 46%,
+    transparent 72%
+  );
+  filter: blur(20px);
+  transform: translate(-50%, -50%);
+  content: "";
+}
+
+.love-reveal.is-visible {
+  opacity: 1;
+  filter: blur(0);
+  transform: translate(-50%, 0) scale(1);
+}
+
+.love-reveal span,
+.love-reveal small {
+  position: relative;
+  color: rgba(203, 236, 255, 0.46);
+  font-size: 8px;
+  letter-spacing: 0.34em;
+}
+
+.love-reveal strong {
+  position: relative;
+  color: #fff8fd;
+  font-family: "Songti SC", "STSong", Georgia, serif;
+  font-size: clamp(19px, 2.15vw, 32px);
+  font-weight: 400;
+  letter-spacing: 0.16em;
+  text-shadow:
+    0 0 16px rgba(136, 226, 255, 0.48),
+    0 0 38px rgba(255, 112, 190, 0.22);
+}
+
+.love-reveal.is-visible strong {
+  animation: love-pulse 3.4s ease-in-out infinite;
+}
+
+.loading {
+  position: absolute;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 18px;
+  background: #01040a;
+  color: rgba(188, 234, 255, 0.48);
+  font-size: 8px;
+  letter-spacing: 0.25em;
+  transition:
+    opacity 900ms ease,
+    visibility 900ms ease;
+}
+
+.loading.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.loading-ring {
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgba(141, 226, 255, 0.13);
+  border-top-color: rgba(156, 237, 255, 0.7);
+  border-radius: 50%;
+  box-shadow: 0 0 24px rgba(54, 171, 255, 0.08);
+  animation: spin 1.2s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes signal {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.72);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes flash {
+  0% {
+    opacity: 0;
+  }
+  16% {
+    opacity: 0.82;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes breathe-a {
+  to {
+    opacity: 0.52;
+    transform: scale(1.08) translateY(1.5%);
+  }
+}
+
+@keyframes breathe-b {
+  to {
+    opacity: 0.52;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes love-pulse {
+  0%,
+  100% {
+    text-shadow:
+      0 0 14px rgba(136, 226, 255, 0.38),
+      0 0 34px rgba(255, 112, 190, 0.18);
+  }
+  50% {
+    text-shadow:
+      0 0 20px rgba(184, 242, 255, 0.66),
+      0 0 52px rgba(255, 112, 190, 0.34);
+  }
+}
+
+@media (max-width: 760px) {
+  .stage {
+    min-height: 100svh;
+  }
+
+  .hud {
+    left: max(20px, env(safe-area-inset-left));
+    right: max(20px, env(safe-area-inset-right));
+  }
+
+  .hud-top {
+    top: max(20px, env(safe-area-inset-top));
+    display: block;
+  }
+
+  .identity p,
+  .side-index,
+  .gesture-hint,
+  .mode-switch {
+    display: none;
+  }
+
+  .eyebrow {
+    margin-bottom: 10px;
+    font-size: 8px;
+    letter-spacing: 0.19em;
+  }
+
+  h1 {
+    font-size: clamp(31px, 9vw, 42px);
+    letter-spacing: -0.065em;
+  }
+
+  .love-reveal {
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    width: calc(100vw - 42px);
+  }
+
+  .love-reveal strong {
+    font-size: clamp(19px, 5.6vw, 25px);
+    letter-spacing: 0.08em;
+  }
+
+  .love-reveal small {
+    max-width: 88vw;
+    font-size: 7px;
+    letter-spacing: 0.18em;
+  }
+
+  .hud-bottom {
+    bottom: max(18px, env(safe-area-inset-bottom));
+    display: block;
+    height: 44px;
+  }
+
+  .telemetry {
+    gap: 22px;
+  }
+
+  .telemetry div {
+    min-width: 48px;
+    padding-top: 9px;
+  }
+
+  .telemetry strong {
+    font-size: 13px;
+  }
+
+  .telemetry div:nth-child(3) {
+    display: none;
+  }
+
+  .actions {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    gap: 8px;
+  }
+
+  .action-button {
+    flex: 0 0 40px;
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  #rotateButton {
+    display: none;
+  }
+
+  .action-button span {
+    display: none;
+  }
+}
+
+@media (max-height: 620px) {
+  .hud-top {
+    top: 18px;
+  }
+
+  h1 {
+    font-size: 34px;
+  }
+
+  .identity p {
+    display: none;
+  }
+
+  .hud-bottom {
+    bottom: 18px;
+  }
+
+  .love-reveal {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient,
+  .signal,
+  .loading-ring {
+    animation: none;
+  }
+}
+
+</style>
+  </head>
+  <body class="mobile-edition">
+    <main class="stage" id="stage">
+      <canvas id="scene" aria-label="交互式圣诞粒子树"></canvas>
+      <div class="ambient ambient-a"></div>
+      <div class="ambient ambient-b"></div>
+      <div class="scanlines" aria-hidden="true"></div>
+      <div class="vignette" aria-hidden="true"></div>
+      <div class="flash" id="flash" aria-hidden="true"></div>
+
+      <header class="hud hud-top">
+        <div class="identity">
+          <div class="eyebrow">
+            <span class="signal"></span>
+            A UNIVERSE BUILT FOR YOU
+          </div>
+          <h1>致你<span>/</span>冬夜星河</h1>
+          <p>我把整片宇宙的星光，慢慢拼成了一棵树。</p>
+        </div>
+
+        <nav class="mode-switch" aria-label="视觉模式">
+          <button class="mode-button is-active" data-mode="code" type="button">
+            <span>01</span>
+            CODE
+          </button>
+          <button class="mode-button" data-mode="star" type="button">
+            <span>02</span>
+            STAR
+          </button>
+        </nav>
+      </header>
+
+      <div class="side-index" aria-hidden="true">
+        <span>35° 41′ N</span>
+        <i></i>
+        <span>139° 41′ E</span>
+      </div>
+
+      <footer class="hud hud-bottom">
+        <div class="telemetry">
+          <div>
+            <span class="label">NODES</span>
+            <strong id="nodeCount">0000</strong>
+          </div>
+          <div>
+            <span class="label">FPS</span>
+            <strong id="fps">60</strong>
+          </div>
+          <div>
+            <span class="label">BLOOM</span>
+            <strong id="bloom">100</strong>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="replayButton" class="action-button" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.5 9A8 8 0 1 1 4 13.5M4.5 9V3.5M4.5 9H10" />
+            </svg>
+            <span>重新生长</span>
+          </button>
+          <button id="rotateButton" class="action-button" type="button" aria-pressed="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7" />
+            </svg>
+            <span>自动旋转</span>
+          </button>
+          <button id="burstButton" class="action-button is-primary" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8L12 2Z" />
+              <path d="m19 16 .8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16Z" />
+            </svg>
+            <span>星光爆发</span>
+          </button>
+        </div>
+      </footer>
+
+      <div class="gesture-hint">
+        <span>拖动旋转</span>
+        <i></i>
+        <span>点击引爆</span>
+        <i></i>
+        <span>空格重绽</span>
+      </div>
+
+      <section class="love-reveal" id="loveReveal">
+        <span>MERRY CHRISTMAS</span>
+        <strong>你是我冬夜里最亮的光</strong>
+        <small>A LITTLE UNIVERSE, ONLY FOR YOU</small>
+      </section>
+
+      <div class="loading" id="loading">
+        <div class="loading-ring"></div>
+        <span>KNITTING STARLIGHT FOR YOU</span>
+      </div>
+    </main>
+
+    <script>
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById("scene");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const stage = document.getElementById("stage");
+  const flash = document.getElementById("flash");
+  const loading = document.getElementById("loading");
+  const nodeCount = document.getElementById("nodeCount");
+  const fpsNode = document.getElementById("fps");
+  const bloomNode = document.getElementById("bloom");
+  const replayButton = document.getElementById("replayButton");
+  const rotateButton = document.getElementById("rotateButton");
+  const burstButton = document.getElementById("burstButton");
+  const loveReveal = document.getElementById("loveReveal");
+  const modeButtons = [...document.querySelectorAll(".mode-button")];
+
+  const TAU = Math.PI * 2;
+  const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+  const CONFIG = {
+    density: 1.38,
+    ribbonCount: 8,
+    ribbonSteps: 220,
+    rotationSpeed: 0.1,
+    pointerEase: 0.075,
+    maxBurstParticles: 900,
+    formation: {
+      baseDelay: 0.18,
+      spread: 2.45,
+      travel: 3.7,
+      starRevealAt: 5.1,
+      finaleAt: 7.15,
+    },
+  };
+
+  const PALETTES = {
+    code: {
+      background: ["#01040a", "#03101c", "#010309"],
+      colors: [
+        [131, 238, 255],
+        [50, 142, 255],
+        [223, 250, 255],
+        [99, 93, 255],
+        [126, 199, 255],
+        [255, 126, 201],
+        [255, 220, 161],
+      ],
+      star: [225, 252, 255],
+      starGlow: [92, 206, 255],
+      heart: [255, 112, 190],
+      gold: [255, 221, 165],
+      horizon: [28, 132, 255],
+      codeAlpha: 0.3,
+      auroraAlpha: 0.11,
+    },
+    star: {
+      background: ["#010207", "#050314", "#010208"],
+      colors: [
+        [102, 225, 255],
+        [92, 119, 255],
+        [216, 222, 255],
+        [167, 95, 255],
+        [85, 183, 255],
+        [255, 103, 190],
+        [255, 218, 151],
+      ],
+      star: [240, 246, 255],
+      starGlow: [126, 183, 255],
+      heart: [255, 100, 191],
+      gold: [255, 223, 171],
+      horizon: [65, 82, 255],
+      codeAlpha: 0.035,
+      auroraAlpha: 0.14,
+    },
+  };
+
+  const CODE_FRAGMENTS = [
+    "const night = new ParticleField({",
+    "  bloom: 1.8, hue: 'ice',",
+    "  depth: Infinity",
+    "});",
+    "",
+    "await tree.spawn({",
+    "  rings: 7,",
+    "  particles: 4096,",
+    "  light: 'stardust'",
+    "});",
+    "",
+    "function signal(x, y, z) {",
+    "  return Math.sin(x * y + z);",
+    "}",
+    "",
+    "for (const star of sky) {",
+    "  star.twinkle(0.8 + Math.random());",
+    "}",
+    "",
+    "// winter.render(now)",
+    "requestAnimationFrame(frame);",
+    "",
+    "const glow = particles.map((p) =>",
+    "  vec3(p.x, p.y, p.z)",
+    "    .rotateY(time * 0.1)",
+    "    .bloom(p.energy)",
+    ");",
+  ];
+
+  const CODE_CHARS = "{}[]()<>/\\=+-*;:_$#01";
+  const state = {
+    mode: "code",
+    width: 0,
+    height: 0,
+    dpr: 1,
+    time: 0,
+    lastTime: performance.now(),
+    rotation: 0,
+    autoRotate: true,
+    dragging: false,
+    dragX: 0,
+    dragDistance: 0,
+    pointerX: 0,
+    pointerY: 0,
+    pointerSmoothX: 0,
+    pointerSmoothY: 0,
+    pulse: 0,
+    fps: 60,
+    fpsFrames: 0,
+    fpsElapsed: 0,
+    burstTimer: 0,
+    assemblyTime: 0,
+    assemblyFinale: false,
+    heartTimer: 0,
+    loveShown: false,
+  };
+
+  const view = {
+    centerX: 0,
+    baseY: 0,
+    treeHeight: 0,
+    treeRadius: 0,
+    focal: 1050,
+  };
+
+  const tree = {
+    points: [],
+    ribbons: [],
+    ornaments: [],
+    trunk: [],
+  };
+
+  const scene = {
+    stars: [],
+    snow: [],
+    codeColumns: [],
+    bursts: [],
+    hearts: [],
+    shootingStars: [],
+  };
+
+  const spriteCache = new Map();
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function lerp(a, b, amount) {
+    return a + (b - a) * amount;
+  }
+
+  function randomBetween(min, max) {
+    return min + Math.random() * (max - min);
+  }
+
+  function rgba(rgb, alpha) {
+    return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`;
+  }
+
+  function makeGlowSprite(rgb) {
+    const key = rgb.join(",");
+    if (spriteCache.has(key)) return spriteCache.get(key);
+
+    const sprite = document.createElement("canvas");
+    sprite.width = 64;
+    sprite.height = 64;
+    const spriteContext = sprite.getContext("2d");
+    const gradient = spriteContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, rgba(rgb, 1));
+    gradient.addColorStop(0.08, rgba(rgb, 0.98));
+    gradient.addColorStop(0.2, rgba(rgb, 0.58));
+    gradient.addColorStop(0.48, rgba(rgb, 0.12));
+    gradient.addColorStop(1, rgba(rgb, 0));
+    spriteContext.fillStyle = gradient;
+    spriteContext.fillRect(0, 0, 64, 64);
+    spriteCache.set(key, sprite);
+    return sprite;
+  }
+
+  function createTree() {
+    tree.points.length = 0;
+    tree.ribbons.length = 0;
+    tree.ornaments.length = 0;
+    tree.trunk.length = 0;
+
+    const mobileLayout = state.width <= 760 && state.height > state.width;
+    const screenFactor = clamp(
+      (state.width * state.height) / (1280 * 720),
+      mobileLayout ? 0.7 : 0.5,
+      1.55,
+    );
+    const pointCount = Math.round(2750 * screenFactor * CONFIG.density);
+
+    for (let index = 0; index < pointCount; index += 1) {
+      const t = 1 - Math.sqrt(Math.random());
+      const surface = Math.random() < 0.86;
+      const radiusFactor = surface
+        ? 0.88 + Math.random() * 0.12
+        : 0.12 + Math.random() * 0.76;
+      const colorRoll = Math.random();
+      const colorIndex =
+        colorRoll < 0.46
+          ? 0
+          : colorRoll < 0.68
+            ? 1
+            : colorRoll < 0.82
+              ? 2
+              : colorRoll < 0.91
+                ? 4
+                : colorRoll < 0.965
+                  ? 5
+                  : 6;
+
+      tree.points.push({
+        t,
+        angle: Math.random() * TAU,
+        radius:
+          view.treeRadius *
+          Math.pow(1 - t, 0.92) *
+          radiusFactor *
+          (0.95 + Math.sin(t * 29 + index) * 0.035),
+        yJitter: randomBetween(-2.4, 2.4),
+        size: randomBetween(0.48, 1.55) * (surface ? 1 : 0.72),
+        alpha: randomBetween(0.36, 0.96),
+        colorIndex,
+        phase: Math.random() * TAU,
+        speed: randomBetween(0.55, 1.55),
+        surface,
+        spawnAngle: Math.random() * TAU,
+        spawnRadius:
+          view.treeRadius *
+          randomBetween(1.45, 3.25) *
+          (0.65 + Math.random() * 0.35),
+        spawnT: randomBetween(-0.2, 1.14),
+        delay:
+          CONFIG.formation.baseDelay +
+          t * 0.9 +
+          Math.random() * CONFIG.formation.spread,
+        duration: CONFIG.formation.travel * randomBetween(0.86, 1.16),
+      });
+    }
+
+    for (let ribbonIndex = 0; ribbonIndex < CONFIG.ribbonCount; ribbonIndex += 1) {
+      const points = [];
+      const phase = ribbonIndex * GOLDEN_ANGLE;
+      const turns = 2.7 + ribbonIndex * 0.12;
+      for (let step = 0; step < CONFIG.ribbonSteps; step += 1) {
+        const t = step / (CONFIG.ribbonSteps - 1);
+        const radius =
+          view.treeRadius *
+          Math.pow(1 - t, 0.96) *
+          (0.91 + Math.sin(t * 32 + ribbonIndex) * 0.025);
+        points.push({
+          t,
+          angle: phase + t * turns * TAU,
+          radius: radius + randomBetween(-0.9, 0.9),
+          size: randomBetween(0.65, 1.45),
+          alpha: randomBetween(0.34, 0.94),
+          colorIndex:
+            ribbonIndex === 2
+              ? 5
+              : ribbonIndex === 6
+                ? 6
+                : ribbonIndex % 3 === 0
+                  ? 2
+                  : ribbonIndex % 2
+                    ? 1
+                    : 0,
+          phase: Math.random() * TAU,
+          spawnAngle: phase + Math.random() * TAU,
+          spawnRadius:
+            view.treeRadius *
+            randomBetween(1.6, 3.15) *
+            (0.7 + Math.random() * 0.3),
+          spawnT: randomBetween(-0.08, 1.1),
+          delay:
+            CONFIG.formation.baseDelay +
+            t * 1.5 +
+            ribbonIndex * 0.1,
+          duration: CONFIG.formation.travel * 1.02,
+        });
+      }
+      tree.ribbons.push(points);
+    }
+
+    const ornamentCount = Math.round(52 * screenFactor);
+    for (let index = 0; index < ornamentCount; index += 1) {
+      const t = randomBetween(0.05, 0.84);
+      tree.ornaments.push({
+        t,
+        angle: Math.random() * TAU,
+        radius: view.treeRadius * Math.pow(1 - t, 0.92) * randomBetween(0.72, 0.97),
+        size: randomBetween(1.3, 3.1),
+        phase: Math.random() * TAU,
+        colorIndex:
+          Math.random() < 0.2
+            ? 5
+            : Math.random() < 0.16
+              ? 6
+              : Math.random() < 0.55
+                ? 2
+                : Math.random() < 0.7
+                  ? 0
+                  : 3,
+        spawnAngle: Math.random() * TAU,
+        spawnRadius: view.treeRadius * randomBetween(1.8, 3.2),
+        spawnT: randomBetween(0.12, 0.9),
+        delay:
+          CONFIG.formation.baseDelay +
+          t * 0.9 +
+          Math.random() * CONFIG.formation.spread,
+        duration: CONFIG.formation.travel * randomBetween(0.9, 1.12),
+      });
+    }
+
+    const trunkCount = Math.round(100 * screenFactor);
+    for (let index = 0; index < trunkCount; index += 1) {
+      const spread = randomBetween(-1, 1);
+      tree.trunk.push({
+        x: spread * view.treeRadius * 0.07,
+        depth: randomBetween(-1, 1) * view.treeRadius * 0.06,
+        y: randomBetween(0, view.treeHeight * 0.15),
+        size: randomBetween(0.5, 1.15),
+        alpha: randomBetween(0.12, 0.48),
+        spawnAngle: Math.random() * TAU,
+        spawnRadius: view.treeRadius * randomBetween(1.4, 2.8),
+        spawnT: randomBetween(0.15, 0.8),
+        delay: CONFIG.formation.baseDelay + Math.random() * 1.2,
+        duration: CONFIG.formation.travel * randomBetween(0.8, 1.05),
+      });
+    }
+
+    nodeCount.textContent = String(
+      pointCount +
+        CONFIG.ribbonCount * CONFIG.ribbonSteps +
+        ornamentCount +
+        trunkCount,
+    ).padStart(4, "0");
+  }
+
+  function createStars() {
+    scene.stars.length = 0;
+    const starCount = Math.round(clamp((state.width * state.height) / 3800, 90, 360));
+    for (let index = 0; index < starCount; index += 1) {
+      scene.stars.push({
+        x: Math.random(),
+        y: Math.random(),
+        depth: randomBetween(0.15, 1),
+        size: randomBetween(0.35, 1.8),
+        phase: Math.random() * TAU,
+        speed: randomBetween(0.4, 1.8),
+      });
+    }
+  }
+
+  function createSnow() {
+    scene.snow.length = 0;
+    const snowCount = Math.round(clamp((state.width * state.height) / 3200, 90, 320));
+    for (let index = 0; index < snowCount; index += 1) {
+      const depth = Math.random();
+      scene.snow.push({
+        x: Math.random() * state.width,
+        y: Math.random() * state.height,
+        depth,
+        size: lerp(0.35, 2.5, depth),
+        speed: lerp(10, 52, depth),
+        drift: randomBetween(-9, 9),
+        phase: Math.random() * TAU,
+        alpha: lerp(0.12, 0.64, depth),
+      });
+    }
+  }
+
+  function createRomance() {
+    scene.hearts.length = 0;
+    const heartCount = Math.round(clamp(state.width / 62, 18, 36));
+    for (let index = 0; index < heartCount; index += 1) {
+      scene.hearts.push({
+        x: Math.random() * state.width,
+        y: Math.random() * state.height,
+        size: randomBetween(3.5, 11.5),
+        speed: randomBetween(8, 25),
+        drift: randomBetween(-11, 11),
+        phase: Math.random() * TAU,
+        alpha: randomBetween(0.12, 0.5),
+        rotation: randomBetween(-0.32, 0.32),
+        gold: Math.random() < 0.22,
+      });
+    }
+
+    scene.shootingStars.length = 0;
+    for (let index = 0; index < 6; index += 1) {
+      scene.shootingStars.push({
+        x: 0,
+        y: 0,
+        vx: 0,
+        vy: 0,
+        life: 0,
+        maxLife: 1,
+        delay: randomBetween(2.8, 9.5) + index * 0.7,
+        size: randomBetween(0.8, 1.8),
+      });
+    }
+  }
+
+  function traceHeartPath(size) {
+    ctx.beginPath();
+    ctx.moveTo(0, size * 0.56);
+    ctx.bezierCurveTo(
+      -size * 0.16,
+      size * 0.2,
+      -size * 0.96,
+      size * 0.08,
+      -size * 0.9,
+      -size * 0.34,
+    );
+    ctx.bezierCurveTo(
+      -size * 0.84,
+      -size * 0.82,
+      -size * 0.22,
+      -size * 0.95,
+      0,
+      -size * 0.36,
+    );
+    ctx.bezierCurveTo(
+      size * 0.22,
+      -size * 0.95,
+      size * 0.84,
+      -size * 0.82,
+      size * 0.9,
+      -size * 0.34,
+    );
+    ctx.bezierCurveTo(
+      size * 0.96,
+      size * 0.08,
+      size * 0.16,
+      size * 0.2,
+      0,
+      size * 0.56,
+    );
+    ctx.closePath();
+  }
+
+  function createCodeColumns() {
+    scene.codeColumns.length = 0;
+    const columnCount = Math.round(clamp(state.width / 105, 7, 20));
+    for (let index = 0; index < columnCount; index += 1) {
+      const lineStart = Math.floor(Math.random() * CODE_FRAGMENTS.length);
+      const lines = [];
+      for (let line = 0; line < 9; line += 1) {
+        lines.push(CODE_FRAGMENTS[(lineStart + line) % CODE_FRAGMENTS.length]);
+      }
+      scene.codeColumns.push({
+        x: (index + randomBetween(0.1, 0.8)) * (state.width / columnCount),
+        y: randomBetween(-state.height * 0.4, state.height),
+        speed: randomBetween(5, 14),
+        lines,
+        phase: Math.random() * TAU,
+        alpha: randomBetween(0.25, 1),
+      });
+    }
+  }
+
+  function resize() {
+    const rect = stage.getBoundingClientRect();
+    state.width = Math.max(320, rect.width);
+    state.height = Math.max(420, rect.height);
+    state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    canvas.width = Math.round(state.width * state.dpr);
+    canvas.height = Math.round(state.height * state.dpr);
+    canvas.style.width = `${state.width}px`;
+    canvas.style.height = `${state.height}px`;
+    ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+
+    const mobileLayout = state.width <= 760 && state.height > state.width;
+    if (mobileLayout) {
+      view.treeHeight = Math.min(state.height * 0.55, state.width * 0.92);
+      view.treeRadius = Math.min(view.treeHeight * 0.43, state.width * 0.37);
+      view.baseY = state.height * 0.72;
+    } else {
+      view.treeHeight = Math.min(state.height * 0.61, state.width * 0.5);
+      view.treeRadius = Math.min(view.treeHeight * 0.45, state.width * 0.215);
+      view.baseY = state.height * 0.81;
+    }
+    view.centerX = state.width * 0.5;
+    view.focal = Math.max(760, Math.min(state.width, state.height) * 1.5);
+
+    createTree();
+    createStars();
+    createSnow();
+    createRomance();
+    createCodeColumns();
+  }
+
+  function projectCartesian(x, y, z) {
+    const cos = Math.cos(state.rotation);
+    const sin = Math.sin(state.rotation);
+    const rotatedX = x * cos - z * sin;
+    const rotatedZ = x * sin + z * cos;
+    const perspective =
+      view.focal / (view.focal + rotatedZ + view.treeRadius * 0.35);
+    return {
+      x:
+        view.centerX +
+        rotatedX * perspective +
+        state.pointerSmoothX * (10 + view.treeRadius * 0.035),
+      y:
+        view.baseY +
+        y * perspective +
+        state.pointerSmoothY * 6 -
+        Math.abs(state.pointerSmoothX) * 2,
+      z: rotatedZ,
+      scale: perspective,
+    };
+  }
+
+  function projectPoint(angle, radius, t, yJitter = 0) {
+    return projectCartesian(
+      Math.cos(angle) * radius,
+      -view.treeHeight * t + yJitter,
+      Math.sin(angle) * radius,
+    );
+  }
+
+  function resolveFormation(particle) {
+    const raw = clamp(
+      (state.assemblyTime - particle.delay) / particle.duration,
+      0,
+      1,
+    );
+    const eased = 1 - Math.pow(1 - raw, 3);
+    const targetRadius =
+      particle.radius ?? Math.hypot(particle.x, particle.depth);
+    const targetAngle =
+      particle.angle ?? Math.atan2(particle.depth, particle.x);
+    const targetX = Math.cos(targetAngle) * targetRadius;
+    const targetZ = Math.sin(targetAngle) * targetRadius;
+    const targetY =
+      particle.t == null
+        ? particle.y ?? 0
+        : -view.treeHeight * particle.t +
+          (particle.yJitter ?? particle.y ?? 0);
+    const spawnX = Math.cos(particle.spawnAngle) * particle.spawnRadius;
+    const spawnZ = Math.sin(particle.spawnAngle) * particle.spawnRadius;
+    const spawnY = -view.treeHeight * particle.spawnT;
+    const curl =
+      Math.sin(eased * Math.PI * 2 + (particle.phase ?? 0)) * (1 - eased);
+    const lift = Math.sin(eased * Math.PI) * view.treeHeight * 0.06;
+    return {
+      x: lerp(spawnX, targetX, eased) + curl * view.treeRadius * 0.18,
+      y: lerp(spawnY, targetY, eased) - lift,
+      z: lerp(spawnZ, targetZ, eased) - curl * view.treeRadius * 0.12,
+      progress: raw,
+      eased,
+    };
+  }
+
+  function drawBackground() {
+    const palette = PALETTES[state.mode];
+    const gradient = ctx.createLinearGradient(0, 0, 0, state.height);
+    gradient.addColorStop(0, palette.background[0]);
+    gradient.addColorStop(0.5, palette.background[1]);
+    gradient.addColorStop(1, palette.background[2]);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    const centerGlow = ctx.createRadialGradient(
+      view.centerX,
+      view.baseY - view.treeHeight * 0.45,
+      0,
+      view.centerX,
+      view.baseY - view.treeHeight * 0.45,
+      view.treeHeight * 0.75,
+    );
+    centerGlow.addColorStop(
+      0,
+      `rgba(34, 128, 255, ${0.085 + state.pulse * 0.075})`,
+    );
+    centerGlow.addColorStop(0.46, "rgba(25, 99, 205, 0.025)");
+    centerGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+    ctx.fillStyle = centerGlow;
+    ctx.fillRect(0, 0, state.width, state.height);
+
+    drawAurora(palette);
+    drawHeartNebula(palette);
+    drawShootingStars(palette);
+    drawStars(palette);
+    drawCodeRain(palette);
+    drawHorizon(palette);
+  }
+
+  function drawAurora(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    for (let index = 0; index < 3; index += 1) {
+      const x =
+        view.centerX +
+        Math.sin(state.time * (0.07 + index * 0.012) + index * 2.1) *
+          state.width *
+          (0.11 + index * 0.035);
+      const y =
+        state.height * (0.33 + index * 0.08) +
+        Math.cos(state.time * 0.09 + index) * state.height * 0.035;
+      const radius = state.width * (0.14 + index * 0.04);
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+      const color = palette.horizon;
+      gradient.addColorStop(
+        0,
+        rgba(color, palette.auroraAlpha * (0.5 + 0.5 * Math.sin(state.time + index))),
+      );
+      gradient.addColorStop(0.38, rgba(color, palette.auroraAlpha * 0.22));
+      gradient.addColorStop(1, rgba(color, 0));
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(x, y, radius, radius * 0.44, 0.2 + index * 0.2, 0, TAU);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawHeartNebula(palette) {
+    const reveal = clamp(
+      (state.assemblyTime - 2.4) / 4.8,
+      0,
+      1,
+    );
+    if (reveal <= 0) return;
+
+    const size = view.treeRadius * (0.4 + reveal * 0.62);
+    const x = view.centerX;
+    const y = view.baseY - view.treeHeight * 0.43;
+    const beat =
+      1 +
+      Math.max(0, Math.sin(state.time * 2.15)) *
+        0.045 *
+        (0.4 + state.assemblyFinale * 0.6);
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, size * 1.12);
+    gradient.addColorStop(0, rgba(palette.heart, 0.035 * reveal));
+    gradient.addColorStop(0.46, rgba(palette.heart, 0.085 * reveal));
+    gradient.addColorStop(0.78, rgba(palette.horizon, 0.035 * reveal));
+    gradient.addColorStop(1, rgba(palette.horizon, 0));
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(-0.035);
+    ctx.scale(1.24 * reveal * beat, 0.92 * reveal * beat);
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = gradient;
+    traceHeartPath(size);
+    ctx.fill();
+    ctx.globalAlpha = 0.24 * reveal;
+    ctx.strokeStyle = rgba(palette.heart, 0.45);
+    ctx.lineWidth = 1 / Math.max(0.2, reveal);
+    ctx.shadowColor = rgba(palette.heart, 0.65);
+    ctx.shadowBlur = 20;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function updateShootingStars(delta) {
+    for (const star of scene.shootingStars) {
+      if (star.life > 0) {
+        star.life -= delta;
+        star.x += star.vx * delta;
+        star.y += star.vy * delta;
+        continue;
+      }
+      star.delay -= delta;
+      if (star.delay > 0) continue;
+      const fromLeft = Math.random() < 0.58;
+      star.x = fromLeft
+        ? randomBetween(-state.width * 0.12, state.width * 0.42)
+        : randomBetween(state.width * 0.66, state.width * 1.05);
+      star.y = randomBetween(state.height * 0.05, state.height * 0.38);
+      star.vx =
+        (fromLeft ? 1 : -1) * randomBetween(state.width * 0.45, state.width * 0.76);
+      star.vy = randomBetween(state.height * 0.12, state.height * 0.26);
+      star.maxLife = randomBetween(0.52, 0.94);
+      star.life = star.maxLife;
+      star.delay = randomBetween(5.5, 11.5);
+    }
+  }
+
+  function drawShootingStars(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (const star of scene.shootingStars) {
+      if (star.life <= 0) continue;
+      const life = clamp(star.life / star.maxLife, 0, 1);
+      const alpha = Math.sin(life * Math.PI);
+      const tailScale = 0.055 + life * 0.035;
+      const tailX = star.x - star.vx * tailScale;
+      const tailY = star.y - star.vy * tailScale;
+      const gradient = ctx.createLinearGradient(tailX, tailY, star.x, star.y);
+      gradient.addColorStop(0, rgba(palette.starGlow, 0));
+      gradient.addColorStop(0.62, rgba(palette.starGlow, 0.2 * alpha));
+      gradient.addColorStop(1, rgba(palette.star, 0.92 * alpha));
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = star.size;
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(star.x, star.y);
+      ctx.stroke();
+      const glow = star.size * 12;
+      ctx.globalAlpha = alpha * 0.8;
+      ctx.drawImage(
+        makeGlowSprite(palette.star),
+        star.x - glow / 2,
+        star.y - glow / 2,
+        glow,
+        glow,
+      );
+    }
+    ctx.restore();
+  }
+
+  function drawStars(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const star of scene.stars) {
+      const twinkle =
+        0.42 +
+        0.58 *
+          (0.5 + 0.5 * Math.sin(state.time * star.speed + star.phase));
+      const x =
+        star.x * state.width -
+        state.pointerSmoothX * 8 * star.depth;
+      const y =
+        star.y * state.height -
+        state.pointerSmoothY * 6 * star.depth;
+      const size = star.size * (0.7 + star.depth * 0.7);
+      ctx.globalAlpha = twinkle * (0.25 + star.depth * 0.6);
+      ctx.fillStyle = rgba(palette.star, 0.82);
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, TAU);
+      ctx.fill();
+
+      if (star.depth > 0.83 && star.size > 1.25) {
+        ctx.globalAlpha = twinkle * 0.16;
+        ctx.strokeStyle = rgba(palette.star, 1);
+        ctx.lineWidth = 0.55;
+        ctx.beginPath();
+        ctx.moveTo(x - size * 4, y);
+        ctx.lineTo(x + size * 4, y);
+        ctx.moveTo(x, y - size * 4);
+        ctx.lineTo(x, y + size * 4);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawCodeRain(palette) {
+    const strength = palette.codeAlpha;
+    if (strength < 0.01) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.font = '9px "Cascadia Code", "SFMono-Regular", Consolas, monospace';
+    ctx.textBaseline = "top";
+
+    for (const column of scene.codeColumns) {
+      const fade =
+        strength *
+        column.alpha *
+        (0.48 + 0.52 * Math.sin(state.time * 0.45 + column.phase));
+      ctx.fillStyle = `rgba(109, 181, 224, ${fade})`;
+      for (let index = 0; index < column.lines.length; index += 1) {
+        const line = column.lines[index];
+        const y = column.y + index * 15;
+        if (y < -20 || y > state.height + 20) continue;
+        ctx.fillText(line, column.x, y);
+      }
+
+      if (state.mode === "code" && Math.random() < 0.18) {
+        const x = column.x - 7;
+        const y = column.y + Math.random() * 130;
+        ctx.fillStyle = `rgba(157, 225, 255, ${strength * 0.55})`;
+        ctx.fillText(
+          CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)],
+          x,
+          y,
+        );
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawHorizon(palette) {
+    const y = view.baseY + view.treeHeight * 0.055;
+    ctx.save();
+    ctx.translate(view.centerX, y);
+    ctx.scale(1, 0.22);
+    const gradient = ctx.createRadialGradient(
+      0,
+      0,
+      0,
+      0,
+      0,
+      view.treeRadius * 2.15,
+    );
+    gradient.addColorStop(
+      0,
+      rgba(palette.horizon, 0.27 + state.pulse * 0.14),
+    );
+    gradient.addColorStop(0.3, rgba(palette.horizon, 0.1));
+    gradient.addColorStop(1, rgba(palette.horizon, 0));
+    ctx.globalCompositeOperation = "lighter";
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(0, 0, view.treeRadius * 2.15, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawTree() {
+    const palette = PALETTES[state.mode];
+    drawTreeAura(palette);
+    drawTreeRibbons(palette);
+    drawTreeTrunk(palette);
+    drawTreeParticles(palette);
+    drawOrnaments(palette);
+    drawTopStar(palette);
+  }
+
+  function drawTreeAura(palette) {
+    const x = view.centerX;
+    const y = view.baseY - view.treeHeight * 0.43;
+    const radius = view.treeRadius * 2.15;
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    gradient.addColorStop(0, rgba(palette.horizon, 0.105 + state.pulse * 0.075));
+    gradient.addColorStop(0.42, rgba(palette.horizon, 0.035));
+    gradient.addColorStop(1, rgba(palette.horizon, 0));
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(x, y, radius * 0.68, radius, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawTreeTrunk(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const particle of tree.trunk) {
+      const formation = resolveFormation(particle);
+      const projected = projectCartesian(
+        formation.x,
+        formation.y,
+        formation.z,
+      );
+      ctx.globalAlpha = particle.alpha * (0.18 + formation.eased * 0.82);
+      const size = particle.size * projected.scale * 4;
+      ctx.drawImage(
+        makeGlowSprite(palette.colors[1]),
+        projected.x - size / 2,
+        projected.y - size / 2,
+        size,
+        size,
+      );
+    }
+    ctx.restore();
+  }
+
+  function drawTreeRibbons(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    for (const ribbon of tree.ribbons) {
+      const formed = ribbon.map((point) => {
+        const formation = resolveFormation(point);
+        return {
+          formation,
+          projected: projectCartesian(
+            formation.x,
+            formation.y,
+            formation.z,
+          ),
+        };
+      });
+      let formedCount = 0;
+      while (
+        formedCount < formed.length &&
+        formed[formedCount].formation.progress > 0.72
+      ) {
+        formedCount += 1;
+      }
+      const projected = formed
+        .slice(0, formedCount)
+        .map((entry) => entry.projected);
+      const color = palette.colors[ribbon[0].colorIndex];
+
+      if (projected.length > 1) {
+        ctx.save();
+        ctx.beginPath();
+        projected.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        });
+        ctx.strokeStyle = rgba(color, 0.082);
+        ctx.lineWidth = 14;
+        ctx.shadowColor = rgba(color, 0.45);
+        ctx.shadowBlur = 20;
+        ctx.stroke();
+        ctx.strokeStyle = rgba(color, 0.22);
+        ctx.lineWidth = 3.6;
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+        ctx.strokeStyle = rgba([225, 252, 255], 0.23);
+        ctx.lineWidth = 0.7;
+        ctx.shadowBlur = 5;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      for (let index = 0; index < formed.length; index += 2) {
+        const point = formed[index].projected;
+        const formation = formed[index].formation;
+        const source = ribbon[index];
+        const shimmer =
+          0.38 +
+          0.62 *
+            (0.5 + 0.5 * Math.sin(state.time * 2.1 + source.phase));
+        const size =
+          source.size *
+          point.scale *
+          (0.75 + state.pulse * 0.5) *
+          (index % 6 === 0 ? 4.2 : 2.7);
+        ctx.globalAlpha =
+          source.alpha *
+          shimmer *
+          clamp(point.scale, 0.5, 1.2) *
+          (0.22 + formation.eased * 0.78);
+        ctx.drawImage(
+          makeGlowSprite(palette.colors[source.colorIndex]),
+          point.x - size / 2,
+          point.y - size / 2,
+          size,
+          size,
+        );
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawTreeParticles(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const particle of tree.points) {
+      const formation = resolveFormation(particle);
+      const projected = projectCartesian(
+        formation.x,
+        formation.y,
+        formation.z,
+      );
+      const shimmer =
+        0.54 +
+        0.46 *
+          (0.5 +
+            0.5 * Math.sin(state.time * particle.speed + particle.phase));
+      const depthAlpha = clamp(
+        0.48 + (projected.z / view.treeRadius) * 0.22,
+        0.2,
+        0.92,
+      );
+      const dotSize =
+        particle.size *
+        projected.scale *
+        (particle.surface ? 5.35 : 4.05) *
+        (0.82 + shimmer * 0.48);
+
+      ctx.globalAlpha =
+        particle.alpha *
+        shimmer *
+        depthAlpha *
+        (0.82 + state.pulse * 0.42) *
+        (0.25 + formation.eased * 0.75);
+      const sprite = makeGlowSprite(palette.colors[particle.colorIndex]);
+      ctx.drawImage(
+        sprite,
+        projected.x - dotSize / 2,
+        projected.y - dotSize / 2,
+        dotSize,
+        dotSize,
+      );
+    }
+    ctx.restore();
+  }
+
+  function drawOrnaments(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const ornament of tree.ornaments) {
+      const formation = resolveFormation(ornament);
+      if (formation.eased < 0.05) continue;
+      const projected = projectCartesian(
+        formation.x,
+        formation.y,
+        formation.z,
+      );
+      const pulse =
+        0.48 +
+        0.52 *
+          Math.pow(0.5 + 0.5 * Math.sin(state.time * 1.8 + ornament.phase), 2);
+      const color = palette.colors[ornament.colorIndex];
+      const halo = ornament.size * projected.scale * 12 * (0.8 + pulse * 0.4);
+      ctx.globalAlpha = 0.18 * pulse * formation.eased;
+      ctx.drawImage(
+        makeGlowSprite(color),
+        projected.x - halo / 2,
+        projected.y - halo / 2,
+        halo,
+        halo,
+      );
+      ctx.globalAlpha = (0.5 + pulse * 0.5) * formation.eased;
+      ctx.fillStyle = rgba(color, 0.92);
+      ctx.beginPath();
+      ctx.arc(
+        projected.x,
+        projected.y,
+        ornament.size * projected.scale * (0.65 + pulse * 0.35),
+        0,
+        TAU,
+      );
+      ctx.fill();
+      ctx.globalAlpha = 0.74 * formation.eased;
+      ctx.fillStyle = "rgba(245, 254, 255, 0.92)";
+      ctx.beginPath();
+      ctx.arc(
+        projected.x - 0.35,
+        projected.y - 0.35,
+        Math.max(0.45, ornament.size * projected.scale * 0.24),
+        0,
+        TAU,
+      );
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function getStarPosition() {
+    const projected = projectPoint(0, 0, 1);
+    return {
+      x: projected.x,
+      y: projected.y - 1,
+      scale: projected.scale,
+    };
+  }
+
+  function drawTopStar(palette) {
+    const starPosition = getStarPosition();
+    const reveal = clamp(
+      (state.assemblyTime - CONFIG.formation.starRevealAt) / 1.35,
+      0,
+      1,
+    );
+    if (reveal <= 0) return;
+    const pulse = 1 + Math.sin(state.time * 3.4) * 0.075 + state.pulse * 0.36;
+    const radius =
+      Math.max(10, view.treeHeight * 0.031) *
+      pulse *
+      (0.08 + 0.92 * (1 - Math.pow(1 - reveal, 3)));
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    const haloSize = radius * 12;
+    ctx.globalAlpha = 0.2 + state.pulse * 0.24;
+    ctx.drawImage(
+      makeGlowSprite(palette.starGlow),
+      starPosition.x - haloSize / 2,
+      starPosition.y - haloSize / 2,
+      haloSize,
+      haloSize,
+    );
+
+    ctx.globalAlpha = 0.09 + state.pulse * 0.2;
+    ctx.strokeStyle = rgba(palette.star, 0.9);
+    ctx.lineCap = "round";
+    for (let ray = 0; ray < 4; ray += 1) {
+      const angle = ray * (Math.PI / 4) + Math.PI / 4;
+      const length =
+        radius *
+        (ray % 2 === 0 ? 10 : 7.2) *
+        (1 + Math.sin(state.time * 2 + ray) * 0.06);
+      const gradient = ctx.createLinearGradient(
+        starPosition.x,
+        starPosition.y,
+        starPosition.x + Math.cos(angle) * length,
+        starPosition.y + Math.sin(angle) * length,
+      );
+      gradient.addColorStop(0, rgba(palette.star, 0.5));
+      gradient.addColorStop(0.22, rgba(palette.starGlow, 0.18));
+      gradient.addColorStop(1, rgba(palette.starGlow, 0));
+      ctx.strokeStyle = gradient;
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(
+        starPosition.x - Math.cos(angle) * length * 0.42,
+        starPosition.y - Math.sin(angle) * length * 0.42,
+      );
+      ctx.lineTo(
+        starPosition.x + Math.cos(angle) * length,
+        starPosition.y + Math.sin(angle) * length,
+      );
+      ctx.stroke();
+    }
+
+    ctx.translate(starPosition.x, starPosition.y);
+    ctx.rotate(state.time * 0.1);
+    ctx.globalAlpha = 0.95;
+    ctx.beginPath();
+    for (let point = 0; point < 10; point += 1) {
+      const angle = -Math.PI / 2 + (point * Math.PI) / 5;
+      const pointRadius = point % 2 === 0 ? radius : radius * 0.42;
+      const x = Math.cos(angle) * pointRadius;
+      const y = Math.sin(angle) * pointRadius;
+      if (point === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = rgba(palette.star, 0.9);
+    ctx.shadowColor = rgba(palette.starGlow, 0.9);
+    ctx.shadowBlur = 18;
+    ctx.fill();
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    ctx.rotate(-state.time * 0.1);
+    for (let spark = 0; spark < 7; spark += 1) {
+      const angle = state.time * (0.45 + spark * 0.06) + spark * GOLDEN_ANGLE;
+      const orbit = radius * (2.1 + spark * 0.17);
+      const x = Math.cos(angle) * orbit;
+      const y = Math.sin(angle) * orbit * 0.7;
+      const sparkSize = 2.2 + Math.sin(state.time * 2 + spark) * 0.8;
+      ctx.globalAlpha = 0.4 + spark / 14;
+      ctx.drawImage(
+        makeGlowSprite(palette.colors[0]),
+        x - sparkSize,
+        y - sparkSize,
+        sparkSize * 2,
+        sparkSize * 2,
+      );
+    }
+
+    const heartReveal = clamp((reveal - 0.62) / 0.38, 0, 1);
+    if (heartReveal > 0) {
+      for (let heart = 0; heart < 5; heart += 1) {
+        const angle =
+          -state.time * (0.32 + heart * 0.025) +
+          heart * (TAU / 5) +
+          Math.sin(state.time * 0.7 + heart) * 0.12;
+        const orbit = radius * (2.8 + (heart % 2) * 0.7);
+        const x = Math.cos(angle) * orbit;
+        const y = Math.sin(angle) * orbit * 0.62;
+        const size = 2.6 + (heart % 3) * 0.8;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(Math.sin(state.time + heart) * 0.18);
+        ctx.globalAlpha = heartReveal * (0.5 + (heart % 2) * 0.18);
+        ctx.fillStyle = rgba(
+          heart % 3 === 0 ? palette.gold : palette.heart,
+          0.9,
+        );
+        ctx.shadowColor = rgba(palette.heart, 0.8);
+        ctx.shadowBlur = 10;
+        traceHeartPath(size);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  function updateSnow(delta) {
+    for (const flake of scene.snow) {
+      flake.y += flake.speed * delta;
+      flake.x +=
+        (flake.drift + Math.sin(state.time * 0.8 + flake.phase) * 4) * delta;
+      if (flake.y > state.height + 8) {
+        flake.y = -8;
+        flake.x = Math.random() * state.width;
+      }
+      if (flake.x > state.width + 8) flake.x = -8;
+      if (flake.x < -8) flake.x = state.width + 8;
+    }
+  }
+
+  function drawSnow(depthRange) {
+    const palette = PALETTES[state.mode];
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const flake of scene.snow) {
+      const foreground = flake.depth >= 0.55;
+      if (depthRange === "back" && foreground) continue;
+      if (depthRange === "front" && !foreground) continue;
+      const size = flake.size * (depthRange === "front" ? 1.25 : 0.9);
+      const alpha =
+        flake.alpha *
+        (0.75 + 0.25 * Math.sin(state.time * 1.6 + flake.phase)) *
+        (state.mode === "code" ? 0.9 : 1);
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = rgba(palette.star, 0.9);
+      ctx.beginPath();
+      ctx.arc(flake.x, flake.y, Math.max(0.45, size), 0, TAU);
+      ctx.fill();
+      if (size > 1.75) {
+        ctx.globalAlpha = alpha * 0.16;
+        ctx.strokeStyle = rgba(palette.star, 0.9);
+        ctx.lineWidth = 0.45;
+        ctx.beginPath();
+        ctx.moveTo(flake.x - size * 2.4, flake.y);
+        ctx.lineTo(flake.x + size * 2.4, flake.y);
+        ctx.moveTo(flake.x, flake.y - size * 2.4);
+        ctx.lineTo(flake.x, flake.y + size * 2.4);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function updateHearts(delta) {
+    for (const heart of scene.hearts) {
+      heart.y -= heart.speed * delta;
+      heart.x +=
+        heart.drift * delta +
+        Math.sin(state.time * 0.9 + heart.phase) * 5 * delta;
+      if (heart.y < -24) {
+        heart.y = state.height + randomBetween(10, 80);
+        heart.x = Math.random() * state.width;
+      }
+      if (heart.x < -20) heart.x = state.width + 20;
+      if (heart.x > state.width + 20) heart.x = -20;
+    }
+  }
+
+  function drawHearts(palette) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (const heart of scene.hearts) {
+      const shimmer =
+        0.62 +
+        0.38 * (0.5 + 0.5 * Math.sin(state.time * 1.25 + heart.phase));
+      const alpha = heart.alpha * shimmer;
+      const color = heart.gold ? palette.gold : palette.heart;
+      const glow = heart.size * 6.5;
+      ctx.globalAlpha = alpha * 0.16;
+      ctx.drawImage(
+        makeGlowSprite(color),
+        heart.x - glow / 2,
+        heart.y - glow / 2,
+        glow,
+        glow,
+      );
+
+      ctx.save();
+      ctx.translate(heart.x, heart.y);
+      ctx.rotate(
+        heart.rotation + Math.sin(state.time * 0.55 + heart.phase) * 0.08,
+      );
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = rgba(color, 0.9);
+      ctx.shadowColor = rgba(color, 0.82);
+      ctx.shadowBlur = heart.size * 1.8;
+      traceHeartPath(heart.size);
+      ctx.fill();
+      ctx.globalAlpha = alpha * 0.72;
+      ctx.strokeStyle = "rgba(255, 250, 255, 0.85)";
+      ctx.lineWidth = 0.45;
+      ctx.shadowBlur = 0;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  function burst(x, y, amount = 150, strength = 1) {
+    const palette = PALETTES[state.mode];
+    const remaining = Math.max(
+      0,
+      CONFIG.maxBurstParticles - scene.bursts.length,
+    );
+    const count = Math.min(amount, remaining);
+    for (let index = 0; index < count; index += 1) {
+      const angle = Math.random() * TAU;
+      const speed = randomBetween(50, 420) * strength;
+      const kind =
+        index % 6 === 0 || Math.random() < 0.1 ? "heart" : "spark";
+      const color =
+        kind === "heart"
+          ? Math.random() < 0.25
+            ? palette.gold
+            : palette.heart
+          : palette.colors[Math.floor(Math.random() * palette.colors.length)];
+      scene.bursts.push({
+        x,
+        y,
+        previousX: x,
+        previousY: y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - randomBetween(20, 100) * strength,
+        life: randomBetween(0.7, 1.8),
+        maxLife: 1.8,
+        size: randomBetween(0.9, 3.3),
+        color,
+        spin: randomBetween(-5, 5),
+        angle: Math.random() * TAU,
+        kind,
+      });
+    }
+    state.pulse = Math.min(1.3, state.pulse + 0.85);
+    drawBurstFlash();
+  }
+
+  function drawBurstFlash() {
+    flash.classList.remove("is-active");
+    void flash.offsetWidth;
+    flash.classList.add("is-active");
+  }
+
+  function updateBursts(delta) {
+    for (let index = scene.bursts.length - 1; index >= 0; index -= 1) {
+      const particle = scene.bursts[index];
+      particle.life -= delta;
+      if (particle.life <= 0) {
+        scene.bursts.splice(index, 1);
+        continue;
+      }
+
+      particle.previousX = particle.x;
+      particle.previousY = particle.y;
+      particle.x += particle.vx * delta;
+      particle.y += particle.vy * delta;
+      particle.vy += 115 * delta;
+      particle.vx *= 1 - 0.75 * delta;
+      particle.vy *= 1 - 0.28 * delta;
+      particle.angle += particle.spin * delta;
+    }
+  }
+
+  function drawBursts() {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (const particle of scene.bursts) {
+      const life = clamp(particle.life / particle.maxLife, 0, 1);
+      const alpha = Math.pow(life, 0.55);
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = rgba(particle.color, 0.7);
+      ctx.lineWidth = Math.max(0.45, particle.size * 0.55 * life);
+      ctx.beginPath();
+      ctx.moveTo(particle.previousX, particle.previousY);
+      ctx.lineTo(particle.x, particle.y);
+      ctx.stroke();
+
+      const sparkle = particle.size * (3.2 + life * 3.4);
+      ctx.drawImage(
+        makeGlowSprite(particle.color),
+        particle.x - sparkle / 2,
+        particle.y - sparkle / 2,
+        sparkle,
+        sparkle,
+      );
+
+      if (particle.kind === "heart" && life > 0.16) {
+        ctx.save();
+        ctx.translate(particle.x, particle.y);
+        ctx.rotate(particle.angle);
+        ctx.globalAlpha = alpha * 0.88;
+        ctx.fillStyle = rgba(particle.color, 0.9);
+        ctx.shadowColor = rgba(particle.color, 0.8);
+        ctx.shadowBlur = 9;
+        traceHeartPath(particle.size * 2.6);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      if (particle.size > 2.2 && life > 0.25) {
+        ctx.globalAlpha = alpha * 0.24;
+        ctx.strokeStyle = "rgba(245, 253, 255, 0.92)";
+        ctx.lineWidth = 0.55;
+        const ray = particle.size * 4.4;
+        ctx.beginPath();
+        ctx.moveTo(particle.x - ray, particle.y);
+        ctx.lineTo(particle.x + ray, particle.y);
+        ctx.moveTo(particle.x, particle.y - ray);
+        ctx.lineTo(particle.x, particle.y + ray);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function triggerStarBurst() {
+    const starPosition = getStarPosition();
+    burst(starPosition.x, starPosition.y, 190, 1.2);
+  }
+
+  function romanticFinale() {
+    const starPosition = getStarPosition();
+    burst(starPosition.x, starPosition.y, 270, 1.42);
+    burst(
+      view.centerX,
+      view.baseY - view.treeHeight * 0.34,
+      145,
+      0.92,
+    );
+    state.loveShown = true;
+    window.setTimeout(() => {
+      if (state.loveShown) loveReveal.classList.add("is-visible");
+    }, 420);
+  }
+
+  function replayFormation() {
+    state.assemblyTime = 0;
+    state.assemblyFinale = false;
+    state.burstTimer = 0;
+    state.heartTimer = 0;
+    state.pulse = 0;
+    state.loveShown = false;
+    loveReveal.classList.remove("is-visible");
+    scene.bursts.length = 0;
+  }
+
+  function setMode(mode) {
+    if (!PALETTES[mode] || state.mode === mode) return;
+    state.mode = mode;
+    modeButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.mode === mode);
+    });
+    burst(getStarPosition().x, getStarPosition().y, 70, 0.7);
+  }
+
+  function updateTelemetry(delta) {
+    state.fpsFrames += 1;
+    state.fpsElapsed += delta;
+    if (state.fpsElapsed >= 0.5) {
+      state.fps = Math.round(state.fpsFrames / state.fpsElapsed);
+      state.fpsFrames = 0;
+      state.fpsElapsed = 0;
+      fpsNode.textContent = String(clamp(state.fps, 0, 999)).padStart(2, "0");
+    }
+    bloomNode.textContent = String(Math.round(100 + state.pulse * 22));
+  }
+
+  function update(delta) {
+    state.time += delta;
+    state.assemblyTime += delta;
+    if (
+      !state.assemblyFinale &&
+      state.assemblyTime >= CONFIG.formation.finaleAt
+    ) {
+      state.assemblyFinale = true;
+      romanticFinale();
+    }
+    state.pointerSmoothX = lerp(
+      state.pointerSmoothX,
+      state.pointerX,
+      CONFIG.pointerEase,
+    );
+    state.pointerSmoothY = lerp(
+      state.pointerSmoothY,
+      state.pointerY,
+      CONFIG.pointerEase,
+    );
+    state.pulse *= Math.pow(0.08, delta);
+
+    if (state.autoRotate && !state.dragging) {
+      const formationRotation = clamp(state.assemblyTime / 3.5, 0.35, 1);
+      state.rotation += delta * CONFIG.rotationSpeed * formationRotation;
+    }
+
+    for (const column of scene.codeColumns) {
+      column.y += column.speed * delta;
+      if (column.y > state.height + 150) {
+        column.y = -150;
+        const lineStart = Math.floor(Math.random() * CODE_FRAGMENTS.length);
+        column.lines = Array.from(
+          { length: 9 },
+          (_, index) => CODE_FRAGMENTS[(lineStart + index) % CODE_FRAGMENTS.length],
+        );
+      }
+    }
+
+    state.burstTimer += delta;
+    if (state.burstTimer > 13.5) {
+      state.burstTimer = 0;
+      const starPosition = getStarPosition();
+      burst(starPosition.x, starPosition.y, 34, 0.42);
+    }
+
+    updateSnow(delta);
+    updateHearts(delta);
+    updateShootingStars(delta);
+    updateBursts(delta);
+    state.heartTimer += delta;
+    if (state.assemblyFinale && state.heartTimer > 8.2) {
+      state.heartTimer = 0;
+      const anchorX = view.centerX + randomBetween(-1, 1) * view.treeRadius;
+      const anchorY =
+        view.baseY -
+        view.treeHeight * randomBetween(0.18, 0.84);
+      burst(anchorX, anchorY, 72, 0.58);
+    }
+    updateTelemetry(delta);
+  }
+
+  function render() {
+    drawBackground();
+    drawSnow("back");
+    drawTree();
+    drawHearts(PALETTES[state.mode]);
+    drawSnow("front");
+    drawBursts();
+  }
+
+  function frame(now) {
+    const elapsed = (now - state.lastTime) / 1000;
+    const delta = clamp(elapsed || 0, 0, 0.034);
+    state.lastTime = now;
+    update(delta);
+    render();
+    requestAnimationFrame(frame);
+  }
+
+  function updatePointer(event) {
+    state.pointerX = (event.clientX / state.width - 0.5) * 2;
+    state.pointerY = (event.clientY / state.height - 0.5) * 2;
+  }
+
+  canvas.addEventListener("pointerdown", (event) => {
+    state.dragging = true;
+    state.dragX = event.clientX;
+    state.dragDistance = 0;
+    document.body.classList.add("is-dragging");
+    canvas.setPointerCapture(event.pointerId);
+    updatePointer(event);
+  });
+
+  canvas.addEventListener("pointermove", (event) => {
+    updatePointer(event);
+    if (!state.dragging) return;
+    const movement = event.clientX - state.dragX;
+    state.dragX = event.clientX;
+    state.dragDistance += Math.abs(movement);
+    state.rotation += movement * 0.0065;
+  });
+
+  function finishPointer(event) {
+    if (!state.dragging) return;
+    state.dragging = false;
+    document.body.classList.remove("is-dragging");
+    if (canvas.hasPointerCapture?.(event.pointerId)) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    if (state.dragDistance < 3 && event.type === "pointerup") {
+      burst(event.clientX, event.clientY, 135, 1);
+    }
+  }
+
+  canvas.addEventListener("pointerup", finishPointer);
+  canvas.addEventListener("pointercancel", finishPointer);
+  canvas.addEventListener("pointerleave", () => {
+    if (!state.dragging) {
+      state.pointerX = 0;
+      state.pointerY = 0;
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.code === "Space") {
+      event.preventDefault();
+      triggerStarBurst();
+    }
+    if (event.key.toLowerCase() === "r") {
+      state.autoRotate = !state.autoRotate;
+      rotateButton.setAttribute("aria-pressed", String(state.autoRotate));
+    }
+    if (event.key.toLowerCase() === "g") {
+      replayFormation();
+    }
+  });
+
+  rotateButton.addEventListener("click", () => {
+    state.autoRotate = !state.autoRotate;
+    rotateButton.setAttribute("aria-pressed", String(state.autoRotate));
+  });
+
+  burstButton.addEventListener("click", triggerStarBurst);
+  replayButton.addEventListener("click", replayFormation);
+
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => setMode(button.dataset.mode));
+  });
+
+  let resizeFrame = 0;
+  window.addEventListener("resize", () => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(resize);
+  });
+
+  resize();
+  const params = new URLSearchParams(window.location.search);
+  const requestedMode = params.get("mode");
+  const mobileLayout = window.matchMedia("(max-width: 760px)").matches;
+  if (!requestedMode && mobileLayout) {
+    state.mode = "star";
+    modeButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.mode === "star");
+    });
+  } else if (requestedMode && requestedMode !== state.mode) {
+    setMode(requestedMode);
+  }
+  const previewTime = Number(params.get("t"));
+  if (Number.isFinite(previewTime) && previewTime >= 0) {
+    state.assemblyTime = previewTime;
+    state.assemblyFinale =
+      previewTime >= CONFIG.formation.finaleAt;
+    if (state.assemblyFinale) {
+      state.loveShown = true;
+      loveReveal.classList.add("is-visible");
+    }
+    loading.classList.add("is-hidden");
+    loading.style.display = "none";
+  }
+  requestAnimationFrame(frame);
+  window.setTimeout(() => {
+    loading.classList.add("is-hidden");
+  }, 420);
+})();
+
+</script>
+  </body>
+</html>

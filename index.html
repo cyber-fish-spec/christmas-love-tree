@@ -29,6 +29,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #01040a;
 }
 
@@ -53,6 +54,7 @@ button {
   position: relative;
   width: 100%;
   height: 100%;
+  height: 100dvh;
   min-height: 440px;
   isolation: isolate;
   background:
@@ -560,33 +562,71 @@ h1 span {
 }
 
 @media (max-width: 760px) {
+  .stage {
+    min-height: 100svh;
+  }
+
+  .hud {
+    left: max(20px, env(safe-area-inset-left));
+    right: max(20px, env(safe-area-inset-right));
+  }
+
   .hud-top {
-    flex-direction: column;
-    gap: 18px;
+    top: max(20px, env(safe-area-inset-top));
+    display: block;
   }
 
   .identity p,
   .side-index,
-  .gesture-hint {
+  .gesture-hint,
+  .mode-switch {
     display: none;
   }
 
+  .eyebrow {
+    margin-bottom: 10px;
+    font-size: 8px;
+    letter-spacing: 0.19em;
+  }
+
+  h1 {
+    font-size: clamp(31px, 9vw, 42px);
+    letter-spacing: -0.065em;
+  }
+
   .love-reveal {
-    bottom: 74px;
+    bottom: calc(92px + env(safe-area-inset-bottom));
+    width: calc(100vw - 42px);
   }
 
   .love-reveal strong {
+    font-size: clamp(19px, 5.6vw, 25px);
     letter-spacing: 0.08em;
   }
 
-  .mode-switch {
-    align-self: flex-start;
+  .love-reveal small {
+    max-width: 88vw;
+    font-size: 7px;
+    letter-spacing: 0.18em;
   }
 
   .hud-bottom {
-    bottom: 22px;
-    align-items: flex-end;
-    gap: 12px;
+    bottom: max(18px, env(safe-area-inset-bottom));
+    display: block;
+    height: 44px;
+  }
+
+  .telemetry {
+    gap: 22px;
+  }
+
+  .telemetry div {
+    min-width: 48px;
+    padding-top: 9px;
+  }
+
+  .telemetry strong {
+    font-size: 13px;
   }
 
   .telemetry div:nth-child(3) {
@@ -594,7 +634,10 @@ h1 span {
   }
 
   .actions {
-    flex-shrink: 0;
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    gap: 8px;
   }
 
   .action-button {
@@ -628,6 +671,10 @@ h1 span {
 
   .hud-bottom {
     bottom: 18px;
+  }
+
+  .love-reveal {
+    display: none;
   }
 }
 
@@ -940,9 +987,10 @@ h1 span {
     tree.ornaments.length = 0;
     tree.trunk.length = 0;
 
+    const mobileLayout = state.width <= 760 && state.height > state.width;
     const screenFactor = clamp(
       (state.width * state.height) / (1280 * 720),
-      0.5,
+      mobileLayout ? 0.7 : 0.5,
       1.55,
     );
     const pointCount = Math.round(2750 * screenFactor * CONFIG.density);
@@ -1229,9 +1277,16 @@ h1 span {
     canvas.style.height = `${state.height}px`;
     ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
 
-    view.treeHeight = Math.min(state.height * 0.61, state.width * 0.5);
-    view.treeRadius = Math.min(view.treeHeight * 0.45, state.width * 0.215);
-    view.baseY = state.height * 0.81;
+    const mobileLayout = state.width <= 760 && state.height > state.width;
+    if (mobileLayout) {
+      view.treeHeight = Math.min(state.height * 0.55, state.width * 0.92);
+      view.treeRadius = Math.min(view.treeHeight * 0.43, state.width * 0.37);
+      view.baseY = state.height * 0.72;
+    } else {
+      view.treeHeight = Math.min(state.height * 0.61, state.width * 0.5);
+      view.treeRadius = Math.min(view.treeHeight * 0.45, state.width * 0.215);
+      view.baseY = state.height * 0.81;
+    }
     view.centerX = state.width * 0.5;
     view.focal = Math.max(760, Math.min(state.width, state.height) * 1.5);
 
@@ -2360,7 +2415,13 @@ h1 span {
   resize();
   const params = new URLSearchParams(window.location.search);
   const requestedMode = params.get("mode");
-  if (requestedMode && requestedMode !== state.mode) {
+  const mobileLayout = window.matchMedia("(max-width: 760px)").matches;
+  if (!requestedMode && mobileLayout) {
+    state.mode = "star";
+    modeButtons.forEach((button) => {
+      button.classList.toggle("is-active", button.dataset.mode === "star");
+    });
+  } else if (requestedMode && requestedMode !== state.mode) {
     setMode(requestedMode);
   }
   const previewTime = Number(params.get("t"));
